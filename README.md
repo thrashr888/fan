@@ -6,6 +6,9 @@ Answer a practical Mac question: **why are my fans running, and what can I quit 
 then groups recent CPU activity by app. It suggests copyable, graceful quit
 commands for ordinary apps and a way to watch whether RPM falls afterward.
 It never quits an app or changes fan speed for you.
+It also checks the non-software explanation first: blankets, bedding, and
+other soft surfaces can obstruct cooling. It cannot sense blocked airflow,
+so moving the Mac to a hard, flat surface and watching RPM is a useful test.
 
 ## Install
 
@@ -35,13 +38,18 @@ The suggested quit commands are on their own lines for easy copying. Save your
 work before quitting an app. If a background process is an ordinary user
 executable, `fan` shows an inspection command followed by a `kill -TERM`
 command. It never suggests killing WindowServer or a system service.
+It gives tailored guidance for WindowServer, CrowdStrike Falcon, coreaudiod,
+ControlCenter, Spotlight, and kernel_task rather than treating them as apps
+you should force-quit. CrowdStrike is managed security software; ask your IT
+team if its CPU usage remains high.
 
 Fan RPM says whether a fan is physically spinning. CPU activity is evidence
 about possible heat sources, not proof that a particular app started the fan.
 macOS `ps` reports a decaying CPU average over up to a minute, so a brief spike
 or a just-closed app can remain visible. The practical test is to close one app
 at a time and watch whether RPM drops. Fans may take minutes to slow after load
-ends. GPU work, charging, ambient temperature, and earlier load can also matter.
+ends. GPU work, charging, ambient temperature, blocked airflow, and earlier
+load can also matter.
 
 If the SMC reading is unavailable, `fan` says so and `-w` falls back to a CPU
 threshold. The SMC key interface is undocumented and may change on future Macs.

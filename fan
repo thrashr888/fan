@@ -3,7 +3,7 @@
 
 set -eu
 
-version=0.1.0
+version=0.2.0
 samples=5
 interval=1
 count=5
@@ -208,6 +208,10 @@ fi
 
 if [ ! -s "$ranked" ]; then
   printf 'No measurable CPU activity found.\n'
+  if [ "$fan_status" = running ]; then
+    printf 'Check airflow: move the Mac off blankets or bedding onto a hard, flat surface; keep vents clear.\n'
+    printf 'Wait a few minutes and run fan -w. This tool cannot detect a blocked vent directly.\n'
+  fi
   top_cpu=0
   return
 fi
@@ -226,19 +230,42 @@ printf '\n'
 if [ "$fan_status" = stopped ]; then
   printf 'The fans are off. These CPU readings are not evidence of a fan culprit.\n'
   return
-elif [ "$top_app" = WindowServer ]; then
-  printf 'WindowServer is using %s%% CPU; the app causing the drawing work is uncertain.\n' "$top_cpu"
 elif [ "$top_cpu" -ge 25 ]; then
-  printf 'Top CPU contributor: %s (%s%% CPU).\n' "$top_app" "$top_cpu"
+  printf 'Top recent CPU activity: %s (%s%%). This is a clue, not proof of the fan cause.\n' "$top_app" "$top_cpu"
 else
   printf 'No clear CPU culprit right now; the top app is %s at %s%%.\n' "$top_app" "$top_cpu"
-  printf 'The fan may be reacting to earlier load, GPU work, charging, or room temperature.\n'
+  printf 'The fan may be reacting to earlier load, GPU work, charging, or blocked airflow.\n'
 fi
 
-if [ "$top_app" = WindowServer ]; then
-  printf 'WindowServer draws the desktop. Close busy windows or tabs, stop screen sharing, or disconnect an external display and check again.\n'
-  printf 'Do not kill WindowServer. Run fan -w to watch the fans.\n'
-fi
+printf '\nFirst check airflow: move the Mac off blankets or bedding onto a hard, flat surface; keep vents clear.\n'
+printf 'Wait a few minutes and run fan -w. This tool cannot detect a blocked vent directly.\n'
+
+system_notes=0
+shown=0
+while IFS="$(printf '\t')" read -r row_cpu row_app row_hottest row_process row_pid row_quit row_kill; do
+  shown=$((shown + 1))
+  [ "$shown" -le "$count" ] || break
+  case "$row_app" in
+    WindowServer)
+      note='WindowServer draws windows. Close busy tabs/windows, stop screen sharing, or test without an external display; do not kill it.' ;;
+    com.crowdstrike.falcon.Agent|Falcon|FalconSensor)
+      note='CrowdStrike Falcon is managed security software. Do not kill it; if CPU stays high, ask your IT team to investigate.' ;;
+    coreaudiod)
+      note='coreaudiod handles audio. Close calls, recording, or playback apps and check virtual audio devices; do not kill it.' ;;
+    ControlCenter)
+      note='ControlCenter is macOS UI. Dismiss open controls and check screen sharing or media apps; do not kill it.' ;;
+    Spotlight)
+      note='Spotlight may be indexing. Let it finish and watch whether CPU and RPM settle; do not kill its workers.' ;;
+    'macOS kernel')
+      note='kernel_task is macOS. High usage can accompany thermal management; check airflow and charging before blaming an app.' ;;
+    *) continue ;;
+  esac
+  if [ "$system_notes" -eq 0 ]; then
+    printf '\nAbout the system processes:\n'
+    system_notes=1
+  fi
+  printf '%s\n' "$note"
+done <"$ranked"
 
 printf '\nTo test a cause, save your work and close one busy app at a time.\n'
 printf 'Watch whether fan RPM falls afterward; cooling can take a few minutes.\n'
@@ -248,10 +275,14 @@ action_count=0
 while IFS="$(printf '\t')" read -r row_cpu row_app row_hottest row_process row_pid row_quit row_kill; do
   shown=$((shown + 1))
   [ "$shown" -le "$count" ] || break
-  [ "$row_app" = WindowServer ] && continue
-  [ "$row_app" = "macOS kernel" ] && continue
+  case "$row_app" in
+    WindowServer|com.crowdstrike.falcon.Agent|Falcon|FalconSensor|coreaudiod|ControlCenter|Spotlight|'macOS kernel') continue ;;
+  esac
   awk -v n="$row_cpu" 'BEGIN { exit !(n >= 10) }' || continue
   if [ "$row_quit" = 1 ]; then
+    if [ "$row_app" = ChatGPT ]; then
+      printf 'Closing ChatGPT will interrupt any active Codex/ChatGPT session.\n'
+    fi
     case "$row_app" in
       *[!A-Za-z0-9._\ -]*) ;;
       *)
