@@ -3,7 +3,7 @@
 
 set -eu
 
-version=0.3.0
+version=0.3.1
 samples=5
 interval=1
 count=5
@@ -17,6 +17,7 @@ cyan=
 green=
 yellow=
 dim=
+command_bg=
 reset=
 if [ -t 1 ] && [ -z "${NO_COLOR+x}" ] && [ "${TERM:-dumb}" != dumb ]; then
   esc=$(printf '\033')
@@ -26,6 +27,7 @@ if [ -t 1 ] && [ -z "${NO_COLOR+x}" ] && [ "${TERM:-dumb}" != dumb ]; then
   green="${esc}[32m"
   yellow="${esc}[33m"
   dim="${esc}[2m"
+  command_bg="${esc}[48;5;236;97m"
   reset="${esc}[0m"
 fi
 
@@ -314,6 +316,7 @@ done <"$ranked"
 printf '\nTo test a cause, save your work and close one busy app at a time.\n'
 printf 'Watch whether fan RPM falls afterward; cooling can take a few minutes.\n'
 heading 'Possible actions'
+printf '\n'
 shown=0
 action_count=0
 while IFS="$(printf '\t')" read -r row_cpu row_app row_hottest row_process row_pid row_quit row_kill; do
@@ -335,22 +338,22 @@ while IFS="$(printf '\t')" read -r row_cpu row_app row_hottest row_process row_p
       *[!A-Za-z0-9._\ -]*) ;;
       *)
         printf '%sClose %s:%s\n' "$bold" "$row_app" "$reset"
-        printf 'osascript -e '\''tell application "%s" to quit'\''\n' "$row_app"
+        printf '%sosascript -e '\''tell application "%s" to quit'\''%s\n\n' "$command_bg" "$row_app" "$reset"
         action_count=$((action_count + 1))
         ;;
     esac
   elif [ "$row_kill" = 1 ] && [ -n "$row_pid" ] && [ "$(ps -p "$row_pid" -o uid= 2>/dev/null | awk '{print $1}')" = "$(id -u)" ]; then
     printf '%sInspect %s:%s\n' "$bold" "$row_app" "$reset"
-    printf 'ps -p %s -o pid=,user=,comm=\n' "$row_pid"
+    printf '%sps -p %s -o pid=,user=,comm=%s\n\n' "$command_bg" "$row_pid" "$reset"
     printf '%sStop %s:%s\n' "$bold" "$row_app" "$reset"
-    printf 'kill -TERM %s\n' "$row_pid"
+    printf '%skill -TERM %s%s\n\n' "$command_bg" "$row_pid" "$reset"
     action_count=$((action_count + 1))
   fi
 done <"$ranked"
 [ "$action_count" -gt 0 ] || printf '  No ordinary app in the top results has a safe quit command.\n'
 if [ "$action_count" -gt 0 ]; then
   label 'Then watch fan RPM:'
-  printf 'fan -w\n'
+  printf '%sfan -w%s\n' "$command_bg" "$reset"
 fi
 }
 

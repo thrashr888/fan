@@ -7,7 +7,8 @@ then groups recent CPU activity by app. It suggests copyable, graceful quit
 commands for ordinary apps and a way to watch whether RPM falls afterward.
 It never quits an app or changes fan speed for you.
 Terminal output uses color and bold labels when stdout is a terminal; commands remain
-plain, one-per-line text for easy selection. Set `NO_COLOR=1` to disable styling.
+one-per-line text with a subtle dark highlight and blank lines between actions
+for easy selection. Set `NO_COLOR=1` to disable styling.
 It also checks the non-software explanation first: blankets, bedding, and
 other soft surfaces can obstruct cooling. It cannot sense blocked airflow,
 so moving the Mac to a hard, flat surface and watching RPM is a useful test.

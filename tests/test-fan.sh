@@ -46,4 +46,11 @@ done
 case "$output" in
   *'kill -TERM '*) printf 'Unsafe kill suggestion:\n%s\n' "$output" >&2; exit 1 ;;
 esac
+printf '%s\n' "$output" | awk '
+  /^osascript -e / {
+    found = 1
+    if (getline line <= 0 || line != "") bad = 1
+  }
+  END { exit bad || !found }
+' || { printf 'Quit command must be followed by a blank line\n' >&2; exit 1; }
 printf '%s\n' 'fan guidance test passed'
