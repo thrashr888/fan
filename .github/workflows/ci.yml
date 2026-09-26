@@ -15,3 +15,4 @@ jobs:
           sh -n fan
           ./fan -v
           ./fan -h
+          sh tests/test-fan.sh

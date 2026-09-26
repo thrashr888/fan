@@ -3,12 +3,39 @@
 
 set -eu
 
-version=0.2.0
+version=0.3.0
 samples=5
 interval=1
 count=5
 watch=0
 deep=0
+
+# ANSI styling is deliberately confined to labels, never copyable commands.
+bold=
+italic=
+cyan=
+green=
+yellow=
+dim=
+reset=
+if [ -t 1 ] && [ -z "${NO_COLOR+x}" ] && [ "${TERM:-dumb}" != dumb ]; then
+  esc=$(printf '\033')
+  bold="${esc}[1m"
+  italic="${esc}[3m"
+  cyan="${esc}[36m"
+  green="${esc}[32m"
+  yellow="${esc}[33m"
+  dim="${esc}[2m"
+  reset="${esc}[0m"
+fi
+
+heading() {
+  printf '%s%s%s\n' "$bold$cyan" "$1" "$reset"
+}
+
+label() {
+  printf '%s%s%s\n' "$bold" "$1" "$reset"
+}
 
 usage() {
   cat <<'EOF'
@@ -23,6 +50,8 @@ Read fan RPM, then sample CPU use and group helper processes by app.
   -d           show deeper thermal and GPU diagnostic commands
   -v           show version
   -h           show this help
+
+Colors appear on terminals only; set NO_COLOR=1 to disable them.
 
 Examples:
   fan
@@ -109,7 +138,7 @@ sample() {
       sleep "$interval"
     fi
   done
-  printf 'done\n\n'
+  printf '%sdone%s\n\n' "$dim" "$reset"
 }
 
 rank() {
@@ -144,8 +173,10 @@ awk -v samples="$samples" '
     if (executable ~ /^Google Chrome Helper/) return "Google Chrome"
     if (executable ~ /^Code Helper/) return "Visual Studio Code"
     if (executable ~ /^com\.apple\.WebKit/) return "Safari / WebKit"
-    if (executable ~ /^(mds|mds_stores|mdworker|mdworker_shared)$/) return "Spotlight"
+    if (executable ~ /^(mds|mds_stores|mdworker|mdworker_shared|spotlightknowledged\.updater)$/) return "Spotlight"
     if (executable ~ /^(photoanalysisd|photolibraryd)$/) return "Photos analysis"
+    if (executable == "mediaanalysisd") return "Media analysis"
+    if (executable ~ /^com\.opalcamera\./) return "Opal"
     if (executable ~ /^(bird|cloudd)$/) return "iCloud"
     if (executable ~ /^(backupd|backupd-helper)$/) return "Time Machine"
     if (executable ~ /^(com\.docker\.backend|vpnkit)$/) return "Docker"
@@ -196,13 +227,13 @@ awk -v samples="$samples" '
 report() {
 
 if [ "$fan_status" = unavailable ]; then
-  printf 'Fan RPM: unavailable. Keep fan-rpm beside this script to enable the sensor.\n\n'
+  printf '%sFan RPM: unavailable.%s Keep fan-rpm beside this script to enable the sensor.\n\n' "$yellow" "$reset"
 else
-  printf '%s\n' "$fan_data" | awk -F '\t' '{ printf "Fan %d: %d RPM\n", $1 + 1, $2 }'
+  printf '%s\n' "$fan_data" | awk -F '\t' -v color="$bold$cyan" -v reset="$reset" '{ printf "%sFan %d: %d RPM%s\n", color, $1 + 1, $2, reset }'
   if [ "$fan_status" = stopped ]; then
-    printf 'Fans are stopped.\n\n'
+    printf '%sFans are stopped.%s\n\n' "$green" "$reset"
   else
-    printf 'Fans are spinning.\n\n'
+    printf '%sFans are spinning.%s\n\n' "$yellow" "$reset"
   fi
 fi
 
@@ -216,8 +247,8 @@ if [ ! -s "$ranked" ]; then
   return
 fi
 
-printf 'Recent CPU activity (100%% = one fully used core)\n'
-printf '%s\n' '---------------------------------------------'
+heading 'Recent CPU activity'
+printf '%s(100%% = one fully used core)%s\n' "$dim" "$reset"
 head -n "$count" "$ranked" | awk -F '\t' '{
   printf "%d. %-27s %7.1f%%\n", NR, $2, $1
   if ($4 != "" && $4 != $2) printf "   hottest process: %s (%.1f%%)\n", $4, $3
@@ -228,16 +259,16 @@ top_app=$(awk -F '\t' 'NR == 1 { print $2 }' "$ranked")
 
 printf '\n'
 if [ "$fan_status" = stopped ]; then
-  printf 'The fans are off. These CPU readings are not evidence of a fan culprit.\n'
+  printf '%sThe fans are off.%s These CPU readings are not evidence of a fan culprit.\n' "$green" "$reset"
   return
 elif [ "$top_cpu" -ge 25 ]; then
-  printf 'Top recent CPU activity: %s (%s%%). This is a clue, not proof of the fan cause.\n' "$top_app" "$top_cpu"
+  printf '%sTop recent CPU activity:%s %s (%s%%). %sThis is a clue, not proof of the fan cause.%s\n' "$bold" "$reset" "$top_app" "$top_cpu" "$italic" "$reset"
 else
   printf 'No clear CPU culprit right now; the top app is %s at %s%%.\n' "$top_app" "$top_cpu"
   printf 'The fan may be reacting to earlier load, GPU work, charging, or blocked airflow.\n'
 fi
 
-printf '\nFirst check airflow: move the Mac off blankets or bedding onto a hard, flat surface; keep vents clear.\n'
+printf '\n%sFirst check airflow:%s move the Mac off blankets or bedding onto a hard, flat surface; keep vents clear.\n' "$bold$yellow" "$reset"
 printf 'Wait a few minutes and run fan -w. This tool cannot detect a blocked vent directly.\n'
 
 system_notes=0
@@ -256,12 +287,25 @@ while IFS="$(printf '\t')" read -r row_cpu row_app row_hottest row_process row_p
       note='ControlCenter is macOS UI. Dismiss open controls and check screen sharing or media apps; do not kill it.' ;;
     Spotlight)
       note='Spotlight may be indexing. Let it finish and watch whether CPU and RPM settle; do not kill its workers.' ;;
+    syspolicyd)
+      note='syspolicyd performs macOS security checks. A brief spike can follow app launches or updates; do not kill it.' ;;
+    'Media analysis'|'Photos analysis')
+      note='macOS is analyzing photos or media in the background. Wait and recheck; do not kill its workers.' ;;
+    fileproviderd)
+      note='fileproviderd handles cloud files. Check OneDrive or another sync app for active transfers; do not kill it.' ;;
+    com.apple.Virtualization.VirtualMachine)
+      note='A virtual machine is running. Check Docker or another VM app and stop the VM there; do not kill this service.' ;;
+    corespeechd)
+      note='corespeechd is a macOS speech service. Check voice or dictation activity; do not kill it.' ;;
+    com.cisco.anyconnect.macos.acsockext|acumbrellaagent|vpnagentd)
+      note='This is managed Cisco VPN/security software. Do not kill it; ask IT if sustained usage is high.' ;;
     'macOS kernel')
       note='kernel_task is macOS. High usage can accompany thermal management; check airflow and charging before blaming an app.' ;;
     *) continue ;;
   esac
   if [ "$system_notes" -eq 0 ]; then
-    printf '\nAbout the system processes:\n'
+    printf '\n'
+    heading 'About the system processes'
     system_notes=1
   fi
   printf '%s\n' "$note"
@@ -269,39 +313,43 @@ done <"$ranked"
 
 printf '\nTo test a cause, save your work and close one busy app at a time.\n'
 printf 'Watch whether fan RPM falls afterward; cooling can take a few minutes.\n'
-printf 'Possible actions:\n'
+heading 'Possible actions'
 shown=0
 action_count=0
 while IFS="$(printf '\t')" read -r row_cpu row_app row_hottest row_process row_pid row_quit row_kill; do
   shown=$((shown + 1))
   [ "$shown" -le "$count" ] || break
   case "$row_app" in
-    WindowServer|com.crowdstrike.falcon.Agent|Falcon|FalconSensor|coreaudiod|ControlCenter|Spotlight|'macOS kernel') continue ;;
+    WindowServer|com.crowdstrike.falcon.Agent|Falcon|FalconSensor|coreaudiod|ControlCenter|Spotlight|'macOS kernel'|syspolicyd|'Media analysis'|'Photos analysis'|fileproviderd|com.apple.Virtualization.VirtualMachine|corespeechd|com.cisco.anyconnect.macos.acsockext|acumbrellaagent|vpnagentd) continue ;;
   esac
   awk -v n="$row_cpu" 'BEGIN { exit !(n >= 10) }' || continue
   if [ "$row_quit" = 1 ]; then
+    case "$row_app" in
+      'Google Chrome'|'Google Chrome Canary')
+        printf 'Try closing a busy tab in %s before quitting the whole browser.\n' "$row_app" ;;
+    esac
     if [ "$row_app" = ChatGPT ]; then
       printf 'Closing ChatGPT will interrupt any active Codex/ChatGPT session.\n'
     fi
     case "$row_app" in
       *[!A-Za-z0-9._\ -]*) ;;
       *)
-        printf 'Close %s:\n' "$row_app"
+        printf '%sClose %s:%s\n' "$bold" "$row_app" "$reset"
         printf 'osascript -e '\''tell application "%s" to quit'\''\n' "$row_app"
         action_count=$((action_count + 1))
         ;;
     esac
   elif [ "$row_kill" = 1 ] && [ -n "$row_pid" ] && [ "$(ps -p "$row_pid" -o uid= 2>/dev/null | awk '{print $1}')" = "$(id -u)" ]; then
-    printf 'Inspect %s:\n' "$row_app"
+    printf '%sInspect %s:%s\n' "$bold" "$row_app" "$reset"
     printf 'ps -p %s -o pid=,user=,comm=\n' "$row_pid"
-    printf 'Stop %s:\n' "$row_app"
+    printf '%sStop %s:%s\n' "$bold" "$row_app" "$reset"
     printf 'kill -TERM %s\n' "$row_pid"
     action_count=$((action_count + 1))
   fi
 done <"$ranked"
 [ "$action_count" -gt 0 ] || printf '  No ordinary app in the top results has a safe quit command.\n'
 if [ "$action_count" -gt 0 ]; then
-  printf 'Then watch fan RPM:\n'
+  label 'Then watch fan RPM:'
   printf 'fan -w\n'
 fi
 }
@@ -318,15 +366,15 @@ watch_report() {
   if [ -s "$ranked" ]; then
     top_cpu=$(awk -F '\t' 'NR == 1 { print int($1 + 0.5) }' "$ranked")
     top_app=$(awk -F '\t' 'NR == 1 { print $2 }' "$ranked")
-    printf '%s | top recent CPU: %s %s%%\n' "$fan_line" "$top_app" "$top_cpu"
+    printf '%s%s%s | top recent CPU: %s %s%%\n' "$cyan" "$fan_line" "$reset" "$top_app" "$top_cpu"
   else
     top_cpu=0
-    printf '%s | no measurable CPU activity\n' "$fan_line"
+    printf '%s%s%s | no measurable CPU activity\n' "$cyan" "$fan_line" "$reset"
   fi
 }
 
 if [ "$deep" -eq 1 ]; then
-  printf 'Hardware diagnostics:\n'
+  heading 'Hardware diagnostics'
   if ! command -v powermetrics >/dev/null 2>&1; then
     printf 'powermetrics is unavailable on this Mac.\n\n'
   else
